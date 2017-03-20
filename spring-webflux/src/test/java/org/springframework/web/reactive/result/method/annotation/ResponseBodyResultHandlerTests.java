@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@
 
 package org.springframework.web.reactive.result.method.annotation;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import org.junit.Before;
@@ -28,28 +28,23 @@ import rx.Single;
 
 import org.springframework.core.codec.ByteBufferEncoder;
 import org.springframework.core.codec.CharSequenceEncoder;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.EncoderHttpMessageWriter;
 import org.springframework.http.codec.HttpMessageWriter;
 import org.springframework.http.codec.ResourceHttpMessageWriter;
 import org.springframework.http.codec.json.Jackson2JsonEncoder;
 import org.springframework.http.codec.xml.Jaxb2XmlEncoder;
-import org.springframework.http.server.reactive.ServerHttpRequest;
-import org.springframework.mock.http.server.reactive.test.MockServerHttpRequest;
-import org.springframework.mock.http.server.reactive.test.MockServerHttpResponse;
 import org.springframework.stereotype.Controller;
-import org.springframework.util.ObjectUtils;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.reactive.HandlerResult;
 import org.springframework.web.reactive.accept.RequestedContentTypeResolver;
 import org.springframework.web.reactive.accept.RequestedContentTypeResolverBuilder;
-import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.adapter.DefaultServerWebExchange;
 
 import static org.junit.Assert.assertEquals;
-
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.springframework.web.method.ResolvableMethod.on;
 
 /**
  * Unit tests for {@link ResponseBodyResultHandler}.When adding a test also
@@ -66,60 +61,59 @@ public class ResponseBodyResultHandlerTests {
 
 	private ResponseBodyResultHandler resultHandler;
 
-	private MockServerHttpResponse response;
-
-	private ServerWebExchange exchange;
-
 
 	@Before
-	public void setUp() throws Exception {
-		this.resultHandler = createHandler();
-		initExchange();
-	}
-
-	private void initExchange() {
-		ServerHttpRequest request = MockServerHttpRequest.get("/").build();
-		this.response = new MockServerHttpResponse();
-		this.exchange = new DefaultServerWebExchange(request, this.response);
-	}
-
-
-	private ResponseBodyResultHandler createHandler(HttpMessageWriter<?>... writers) {
-		List<HttpMessageWriter<?>> writerList;
-		if (ObjectUtils.isEmpty(writers)) {
-			writerList = new ArrayList<>();
-			writerList.add(new EncoderHttpMessageWriter<>(new ByteBufferEncoder()));
-			writerList.add(new EncoderHttpMessageWriter<>(new CharSequenceEncoder()));
-			writerList.add(new ResourceHttpMessageWriter());
-			writerList.add(new EncoderHttpMessageWriter<>(new Jaxb2XmlEncoder()));
-			writerList.add(new EncoderHttpMessageWriter<>(new Jackson2JsonEncoder()));
-		}
-		else {
-			writerList = Arrays.asList(writers);
-		}
+	public void setup() throws Exception {
+		List<HttpMessageWriter<?>> writerList = new ArrayList<>(5);
+		writerList.add(new EncoderHttpMessageWriter<>(new ByteBufferEncoder()));
+		writerList.add(new EncoderHttpMessageWriter<>(new CharSequenceEncoder()));
+		writerList.add(new ResourceHttpMessageWriter());
+		writerList.add(new EncoderHttpMessageWriter<>(new Jaxb2XmlEncoder()));
+		writerList.add(new EncoderHttpMessageWriter<>(new Jackson2JsonEncoder()));
 		RequestedContentTypeResolver resolver = new RequestedContentTypeResolverBuilder().build();
-		return new ResponseBodyResultHandler(writerList, resolver);
+		this.resultHandler = new ResponseBodyResultHandler(writerList, resolver);
 	}
+
 
 	@Test
 	public void supports() throws NoSuchMethodException {
 		Object controller = new TestController();
-		testSupports(controller, "handleToString", true);
-		testSupports(controller, "doWork", false);
+		Method method;
 
-		controller = new TestRestController();
-		testSupports(controller, "handleToString", true);
-		testSupports(controller, "handleToMonoString", true);
-		testSupports(controller, "handleToSingleString", true);
-		testSupports(controller, "handleToCompletable", true);
-		testSupports(controller, "handleToResponseEntity", false);
-		testSupports(controller, "handleToMonoResponseEntity", false);
+		method = on(TestController.class).annotPresent(ResponseBody.class).resolveMethod();
+		testSupports(controller, method);
+
+		method = on(TestController.class).annotNotPresent(ResponseBody.class).resolveMethod();
+		HandlerResult handlerResult = getHandlerResult(controller, method);
+		assertFalse(this.resultHandler.supports(handlerResult));
 	}
 
-	private void testSupports(Object controller, String method, boolean result) throws NoSuchMethodException {
-		HandlerMethod hm = handlerMethod(controller, method);
-		HandlerResult handlerResult = new HandlerResult(hm, null, hm.getReturnType());
-		assertEquals(result, this.resultHandler.supports(handlerResult));
+	@Test
+	public void supportsRestController() throws NoSuchMethodException {
+		Object controller = new TestRestController();
+		Method method;
+
+		method = on(TestRestController.class).returning(String.class).resolveMethod();
+		testSupports(controller, method);
+
+		method = on(TestRestController.class).returning(Mono.class, String.class).resolveMethod();
+		testSupports(controller, method);
+
+		method = on(TestRestController.class).returning(Single.class, String.class).resolveMethod();
+		testSupports(controller, method);
+
+		method = on(TestRestController.class).returning(Completable.class).resolveMethod();
+		testSupports(controller, method);
+	}
+
+	private void testSupports(Object controller, Method method) {
+		HandlerResult handlerResult = getHandlerResult(controller, method);
+		assertTrue(this.resultHandler.supports(handlerResult));
+	}
+
+	private HandlerResult getHandlerResult(Object controller, Method method) {
+		HandlerMethod handlerMethod = new HandlerMethod(controller, method);
+		return new HandlerResult(handlerMethod, null, handlerMethod.getReturnType());
 	}
 
 	@Test
@@ -128,12 +122,9 @@ public class ResponseBodyResultHandlerTests {
 	}
 
 
-	private HandlerMethod handlerMethod(Object controller, String method) throws NoSuchMethodException {
-		return new HandlerMethod(controller, controller.getClass().getMethod(method));
-	}
 
-
-	@RestController @SuppressWarnings("unused")
+	@RestController
+	@SuppressWarnings("unused")
 	private static class TestRestController {
 
 		public Mono<Void> handleToMonoVoid() { return null;}
@@ -153,17 +144,11 @@ public class ResponseBodyResultHandlerTests {
 		public Completable handleToCompletable() {
 			return null;
 		}
-
-		public ResponseEntity<String> handleToResponseEntity() {
-			return null;
-		}
-
-		public Mono<ResponseEntity<String>> handleToMonoResponseEntity() {
-			return null;
-		}
 	}
 
-	@Controller @SuppressWarnings("unused")
+
+	@Controller
+	@SuppressWarnings("unused")
 	private static class TestController {
 
 		@ResponseBody
@@ -174,7 +159,6 @@ public class ResponseBodyResultHandlerTests {
 		public String doWork() {
 			return null;
 		}
-
 	}
 
 }

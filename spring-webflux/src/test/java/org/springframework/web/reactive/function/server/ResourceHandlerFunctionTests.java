@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,9 +31,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.http.server.reactive.test.MockServerHttpRequest;
 import org.springframework.mock.http.server.reactive.test.MockServerHttpResponse;
-import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.adapter.DefaultServerWebExchange;
-import org.springframework.web.server.session.MockWebSessionManager;
+import org.springframework.mock.http.server.reactive.test.MockServerWebExchange;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -50,10 +48,8 @@ public class ResourceHandlerFunctionTests {
 
 	@Test
 	public void get() throws IOException {
-		MockServerHttpRequest mockRequest = MockServerHttpRequest.get("http://localhost").build();
-		MockServerHttpResponse mockResponse = new MockServerHttpResponse();
-		ServerWebExchange exchange = new DefaultServerWebExchange(mockRequest, mockResponse,
-				new MockWebSessionManager());
+		MockServerWebExchange exchange = MockServerHttpRequest.get("http://localhost").toExchange();
+		MockServerHttpResponse mockResponse = exchange.getResponse();
 
 		ServerRequest request = new DefaultServerRequest(exchange, HandlerStrategies.withDefaults());
 
@@ -61,13 +57,13 @@ public class ResourceHandlerFunctionTests {
 
 		Mono<Void> result = responseMono.then(response -> {
 					assertEquals(HttpStatus.OK, response.statusCode());
-/*
-TODO: enable when ServerEntityResponse is reintroduced
+					/*
+					TODO: enable when ServerEntityResponse is reintroduced
 					StepVerifier.create(response.body())
 							.expectNext(this.resource)
 							.expectComplete()
 							.verify();
-*/
+					*/
 					return response.writeTo(exchange, HandlerStrategies.withDefaults());
 				});
 
@@ -91,10 +87,8 @@ TODO: enable when ServerEntityResponse is reintroduced
 
 	@Test
 	public void head() throws IOException {
-		MockServerHttpRequest mockRequest = MockServerHttpRequest.head("http://localhost").build();
-		MockServerHttpResponse mockResponse = new MockServerHttpResponse();
-		ServerWebExchange exchange = new DefaultServerWebExchange(mockRequest, mockResponse,
-				new MockWebSessionManager());
+		MockServerWebExchange exchange = MockServerHttpRequest.head("http://localhost").toExchange();
+		MockServerHttpResponse mockResponse = exchange.getResponse();
 
 		ServerRequest request = new DefaultServerRequest(exchange, HandlerStrategies.withDefaults());
 
@@ -120,10 +114,8 @@ TODO: enable when ServerEntityResponse is reintroduced
 
 	@Test
 	public void options() {
-		MockServerHttpRequest mockRequest = MockServerHttpRequest.options("http://localhost").build();
-		MockServerHttpResponse mockResponse = new MockServerHttpResponse();
-		ServerWebExchange exchange = new DefaultServerWebExchange(mockRequest, mockResponse,
-				new MockWebSessionManager());
+		MockServerWebExchange exchange = MockServerHttpRequest.options("http://localhost").toExchange();
+		MockServerHttpResponse mockResponse = exchange.getResponse();
 
 		ServerRequest request = new DefaultServerRequest(exchange, HandlerStrategies.withDefaults());
 
@@ -132,12 +124,12 @@ TODO: enable when ServerEntityResponse is reintroduced
 			assertEquals(HttpStatus.OK, response.statusCode());
 			assertEquals(EnumSet.of(HttpMethod.GET, HttpMethod.HEAD, HttpMethod.OPTIONS),
 					response.headers().getAllow());
-/*
-TODO: enable when ServerEntityResponse is reintroduced
+			/*
+			TODO: enable when ServerEntityResponse is reintroduced
 			StepVerifier.create(response.body())
 					.expectComplete()
 					.verify();
-*/
+			*/
 			return response.writeTo(exchange, HandlerStrategies.withDefaults());
 		});
 

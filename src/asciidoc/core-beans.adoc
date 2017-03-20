@@ -370,7 +370,7 @@ delegates, e.g. with `XmlBeanDefinitionReader` for XML files:
 [subs="verbatim,quotes"]
 ----
 	GenericApplicationContext context = new GenericApplicationContext();
-	new XmlBeanDefinitionReader(ctx).loadBeanDefinitions("services.xml", "daos.xml");
+	new XmlBeanDefinitionReader(context).loadBeanDefinitions("services.xml", "daos.xml");
     context.refresh();
 ----
 
@@ -380,7 +380,7 @@ Or with `GroovyBeanDefinitionReader` for Groovy files:
 [subs="verbatim,quotes"]
 ----
 	GenericApplicationContext context = new GenericApplicationContext();
-	new GroovyBeanDefinitionReader(ctx).loadBeanDefinitions("services.groovy", "daos.groovy");
+	new GroovyBeanDefinitionReader(context).loadBeanDefinitions("services.groovy", "daos.groovy");
     context.refresh();
 ----
 
@@ -1361,7 +1361,7 @@ element.
 
 	<bean id="theClientBean" class="...">
 		<property name="targetName">
-			<idref bean="theTargetBean" />
+			<idref bean="theTargetBean"/>
 		</property>
 	</bean>
 ----
@@ -1375,7 +1375,7 @@ following snippet:
 	<bean id="theTargetBean" class="..." />
 
 	<bean id="client" class="...">
-		<property name="targetName" value="theTargetBean" />
+		<property name="targetName" value="theTargetBean"/>
 	</bean>
 ----
 
@@ -5891,7 +5891,7 @@ Or, using Gradle:
 [subs="verbatim,quotes,attributes"]
 ----
 	dependencies {
-		compileOnly("org.springframework:spring-context-indexed:{spring-version}")
+		compileOnly("org.springframework:spring-context-indexer:{spring-version}")
 	}
 ----
 

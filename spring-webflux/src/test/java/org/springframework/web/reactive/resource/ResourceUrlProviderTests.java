@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 
 package org.springframework.web.reactive.resource;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,14 +31,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.mock.http.server.reactive.test.MockServerHttpRequest;
-import org.springframework.mock.http.server.reactive.test.MockServerHttpResponse;
 import org.springframework.mock.web.test.MockServletContext;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
 import org.springframework.web.reactive.handler.SimpleUrlHandlerMapping;
 import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.adapter.DefaultServerWebExchange;
-import org.springframework.web.server.session.DefaultWebSessionManager;
-import org.springframework.web.server.session.WebSessionManager;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -61,7 +58,7 @@ public class ResourceUrlProviderTests {
 
 
 	@Before
-	public void setUp() throws Exception {
+	public void setup() throws Exception {
 		this.locations.add(new ClassPathResource("test/", getClass()));
 		this.locations.add(new ClassPathResource("testalternatepath/", getClass()));
 		this.handler.setLocations(locations);
@@ -73,22 +70,20 @@ public class ResourceUrlProviderTests {
 
 	@Test
 	public void getStaticResourceUrl() {
-		String url = this.urlProvider.getForLookupPath("/resources/foo.css").blockMillis(5000);
+		String url = this.urlProvider.getForLookupPath("/resources/foo.css").block(Duration.ofSeconds(5));
 		assertEquals("/resources/foo.css", url);
 	}
 
-	@Test // SPR-13374
+	@Test  // SPR-13374
 	public void getStaticResourceUrlRequestWithQueryOrHash() {
-		MockServerHttpRequest request = MockServerHttpRequest.get("/").build();
-		MockServerHttpResponse response = new MockServerHttpResponse();
-		ServerWebExchange exchange = new DefaultServerWebExchange(request, response);
+		ServerWebExchange exchange = MockServerHttpRequest.get("/").toExchange();
 
 		String url = "/resources/foo.css?foo=bar&url=http://example.org";
-		String resolvedUrl = this.urlProvider.getForRequestUrl(exchange, url).blockMillis(5000);
+		String resolvedUrl = this.urlProvider.getForRequestUrl(exchange, url).block(Duration.ofSeconds(5));
 		assertEquals(url, resolvedUrl);
 
 		url = "/resources/foo.css#hash";
-		resolvedUrl = this.urlProvider.getForRequestUrl(exchange, url).blockMillis(5000);
+		resolvedUrl = this.urlProvider.getForRequestUrl(exchange, url).block(Duration.ofSeconds(5));
 		assertEquals(url, resolvedUrl);
 	}
 
@@ -104,11 +99,11 @@ public class ResourceUrlProviderTests {
 		resolvers.add(new PathResourceResolver());
 		this.handler.setResourceResolvers(resolvers);
 
-		String url = this.urlProvider.getForLookupPath("/resources/foo.css").blockMillis(5000);
+		String url = this.urlProvider.getForLookupPath("/resources/foo.css").block(Duration.ofSeconds(5));
 		assertEquals("/resources/foo-e36d2e05253c6c7085a91522ce43a0b4.css", url);
 	}
 
-	@Test // SPR-12647
+	@Test  // SPR-12647
 	public void bestPatternMatch() throws Exception {
 		ResourceWebHandler otherHandler = new ResourceWebHandler();
 		otherHandler.setLocations(this.locations);
@@ -125,11 +120,11 @@ public class ResourceUrlProviderTests {
 		this.handlerMap.put("/resources/*.css", otherHandler);
 		this.urlProvider.setHandlerMap(this.handlerMap);
 
-		String url = this.urlProvider.getForLookupPath("/resources/foo.css").blockMillis(5000);
+		String url = this.urlProvider.getForLookupPath("/resources/foo.css").block(Duration.ofSeconds(5));
 		assertEquals("/resources/foo-e36d2e05253c6c7085a91522ce43a0b4.css", url);
 	}
 
-	@Test // SPR-12592
+	@Test  // SPR-12592
 	public void initializeOnce() throws Exception {
 		AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext();
 		context.setServletContext(new MockServletContext());

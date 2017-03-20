@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,13 @@
 
 package org.springframework.web.reactive.result.method.annotation;
 
+import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.util.Optional;
 
 import org.junit.Test;
+import reactor.core.publisher.Mono;
 
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -30,19 +33,20 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.config.EnableWebFlux;
 import org.springframework.web.reactive.config.ViewResolverRegistry;
-import org.springframework.web.reactive.config.WebFluxConfigurationSupport;
+import org.springframework.web.reactive.config.WebFluxConfigurer;
 import org.springframework.web.reactive.result.view.freemarker.FreeMarkerConfigurer;
 import org.springframework.web.server.ServerWebExchange;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
-import static org.springframework.http.RequestEntity.get;
-
 
 /**
  * {@code @RequestMapping} integration tests with view resolution scenarios.
@@ -50,7 +54,6 @@ import static org.springframework.http.RequestEntity.get;
  * @author Rossen Stoyanchev
  */
 public class RequestMappingViewResolutionIntegrationTests extends AbstractRequestMappingIntegrationTests {
-
 
 	@Override
 	protected ApplicationContext initApplicationContext() {
@@ -70,21 +73,41 @@ public class RequestMappingViewResolutionIntegrationTests extends AbstractReques
 	@Test
 	public void etagCheckWithNotModifiedResponse() throws Exception {
 		URI uri = new URI("http://localhost:" + this.port + "/html");
-		RequestEntity<Void> request = get(uri).ifNoneMatch("\"deadb33f8badf00d\"").build();
+		RequestEntity<Void> request = RequestEntity.get(uri).ifNoneMatch("\"deadb33f8badf00d\"").build();
 		ResponseEntity<String> response = getRestTemplate().exchange(request, String.class);
 
 		assertEquals(HttpStatus.NOT_MODIFIED, response.getStatusCode());
 		assertNull(response.getBody());
 	}
 
+	@Test // SPR-15291
+	public void redirect() throws Exception {
+		SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
+
+			@Override
+			protected void prepareConnection(HttpURLConnection conn, String method) throws IOException {
+				super.prepareConnection(conn, method);
+				conn.setInstanceFollowRedirects(false);
+			}
+		};
+
+		URI uri = new URI("http://localhost:" + this.port + "/redirect");
+		RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.ALL).build();
+		ResponseEntity<Void> response = new RestTemplate(factory).exchange(request, Void.class);
+
+		assertEquals(HttpStatus.SEE_OTHER, response.getStatusCode());
+		assertEquals("/", response.getHeaders().getLocation().toString());
+	}
+
 
 	@Configuration
+	@EnableWebFlux
 	@ComponentScan(resourcePattern = "**/RequestMappingViewResolutionIntegrationTests$*.class")
 	@SuppressWarnings({"unused", "WeakerAccess"})
-	static class WebConfig extends WebFluxConfigurationSupport {
+	static class WebConfig implements WebFluxConfigurer {
 
 		@Override
-		protected void configureViewResolvers(ViewResolverRegistry registry) {
+		public void configureViewResolvers(ViewResolverRegistry registry) {
 			registry.freeMarker();
 		}
 
@@ -95,11 +118,11 @@ public class RequestMappingViewResolutionIntegrationTests extends AbstractReques
 			configurer.setTemplateLoaderPath("classpath*:org/springframework/web/reactive/view/freemarker/");
 			return configurer;
 		}
-
 	}
 
+
 	@Controller
-	@SuppressWarnings("unused")
+	@SuppressWarnings({"unused", "OptionalUsedAsFieldOrParameterType"})
 	private static class TestController {
 
 		@GetMapping("/html")
@@ -113,6 +136,10 @@ public class RequestMappingViewResolutionIntegrationTests extends AbstractReques
 			return "test";
 		}
 
+		@GetMapping("/redirect")
+		public Mono<String> redirect() {
+			return Mono.just("redirect:/");
+		}
 	}
 
 }

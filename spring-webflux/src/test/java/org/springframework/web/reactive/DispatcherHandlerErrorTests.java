@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@ package org.springframework.web.reactive;
 
 import java.time.Duration;
 import java.util.Collections;
+import java.util.List;
 
-import org.jetbrains.annotations.NotNull;
 import org.junit.Before;
 import org.junit.Test;
 import org.reactivestreams.Publisher;
@@ -33,7 +33,6 @@ import org.springframework.core.codec.CharSequenceEncoder;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.codec.EncoderHttpMessageWriter;
 import org.springframework.mock.http.server.reactive.test.MockServerHttpRequest;
-import org.springframework.mock.http.server.reactive.test.MockServerHttpResponse;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -48,7 +47,6 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
 import org.springframework.web.server.WebExceptionHandler;
 import org.springframework.web.server.WebHandler;
-import org.springframework.web.server.adapter.DefaultServerWebExchange;
 import org.springframework.web.server.handler.ExceptionHandlingWebHandler;
 
 import static org.hamcrest.CoreMatchers.instanceOf;
@@ -74,11 +72,9 @@ public class DispatcherHandlerErrorTests {
 
 	private DispatcherHandler dispatcherHandler;
 
-	private MockServerHttpRequest request;
-
 
 	@Before
-	public void setUp() throws Exception {
+	public void setup() throws Exception {
 		AnnotationConfigApplicationContext appContext = new AnnotationConfigApplicationContext();
 		appContext.register(TestConfig.class);
 		appContext.refresh();
@@ -88,8 +84,8 @@ public class DispatcherHandlerErrorTests {
 
 	@Test
 	public void noHandler() throws Exception {
-		this.request = MockServerHttpRequest.get("/does-not-exist").build();
-		Mono<Void> publisher = this.dispatcherHandler.handle(createExchange());
+		ServerWebExchange exchange = MockServerHttpRequest.get("/does-not-exist").toExchange();
+		Mono<Void> publisher = this.dispatcherHandler.handle(exchange);
 
 		StepVerifier.create(publisher)
 				.consumeErrorWith(error -> {
@@ -102,8 +98,8 @@ public class DispatcherHandlerErrorTests {
 
 	@Test
 	public void controllerReturnsMonoError() throws Exception {
-		this.request = MockServerHttpRequest.get("/error-signal").build();
-		Mono<Void> publisher = this.dispatcherHandler.handle(createExchange());
+		ServerWebExchange exchange = MockServerHttpRequest.get("/error-signal").toExchange();
+		Mono<Void> publisher = this.dispatcherHandler.handle(exchange);
 
 		StepVerifier.create(publisher)
 				.consumeErrorWith(error -> assertSame(EXCEPTION, error))
@@ -112,8 +108,8 @@ public class DispatcherHandlerErrorTests {
 
 	@Test
 	public void controllerThrowsException() throws Exception {
-		this.request = MockServerHttpRequest.get("/raise-exception").build();
-		Mono<Void> publisher = this.dispatcherHandler.handle(createExchange());
+		ServerWebExchange exchange = MockServerHttpRequest.get("/raise-exception").toExchange();
+		Mono<Void> publisher = this.dispatcherHandler.handle(exchange);
 
 		StepVerifier.create(publisher)
 				.consumeErrorWith(error -> assertSame(EXCEPTION, error))
@@ -122,8 +118,8 @@ public class DispatcherHandlerErrorTests {
 
 	@Test
 	public void unknownReturnType() throws Exception {
-		this.request = MockServerHttpRequest.get("/unknown-return-type").build();
-		Mono<Void> publisher = this.dispatcherHandler.handle(createExchange());
+		ServerWebExchange exchange = MockServerHttpRequest.get("/unknown-return-type").toExchange();
+		Mono<Void> publisher = this.dispatcherHandler.handle(exchange);
 
 		StepVerifier.create(publisher)
 				.consumeErrorWith(error -> {
@@ -135,8 +131,11 @@ public class DispatcherHandlerErrorTests {
 
 	@Test
 	public void responseBodyMessageConversionError() throws Exception {
-		this.request = MockServerHttpRequest.post("/request-body").accept(APPLICATION_JSON).body("body");
-		Mono<Void> publisher = this.dispatcherHandler.handle(createExchange());
+		ServerWebExchange exchange = MockServerHttpRequest.post("/request-body")
+				.accept(APPLICATION_JSON).body("body")
+				.toExchange();
+
+		Mono<Void> publisher = this.dispatcherHandler.handle(exchange);
 
 		StepVerifier.create(publisher)
 				.consumeErrorWith(error -> assertThat(error, instanceOf(NotAcceptableStatusException.class)))
@@ -145,8 +144,11 @@ public class DispatcherHandlerErrorTests {
 
 	@Test
 	public void requestBodyError() throws Exception {
-		this.request = MockServerHttpRequest.post("/request-body").body(Mono.error(EXCEPTION));
-		Mono<Void> publisher = this.dispatcherHandler.handle(createExchange());
+		ServerWebExchange exchange = MockServerHttpRequest.post("/request-body")
+				.body(Mono.error(EXCEPTION))
+				.toExchange();
+		
+		Mono<Void> publisher = this.dispatcherHandler.handle(exchange);
 
 		StepVerifier.create(publisher)
 				.consumeErrorWith(error -> {
@@ -158,19 +160,13 @@ public class DispatcherHandlerErrorTests {
 
 	@Test
 	public void webExceptionHandler() throws Exception {
-		this.request = MockServerHttpRequest.get("/unknown-argument-type").build();
-		ServerWebExchange exchange = createExchange();
+		ServerWebExchange exchange = MockServerHttpRequest.get("/unknown-argument-type").toExchange();
 
-		WebExceptionHandler exceptionHandler = new ServerError500ExceptionHandler();
-		WebHandler webHandler = new ExceptionHandlingWebHandler(this.dispatcherHandler, exceptionHandler);
+		List<WebExceptionHandler> handlers = Collections.singletonList(new ServerError500ExceptionHandler());
+		WebHandler webHandler = new ExceptionHandlingWebHandler(this.dispatcherHandler, handlers);
 		webHandler.handle(exchange).block(Duration.ofSeconds(5));
 
 		assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exchange.getResponse().getStatusCode());
-	}
-
-	@NotNull
-	private ServerWebExchange createExchange() {
-		return new DefaultServerWebExchange(this.request, new MockServerHttpResponse());
 	}
 
 
@@ -201,6 +197,7 @@ public class DispatcherHandlerErrorTests {
 		}
 	}
 
+
 	@Controller
 	@SuppressWarnings("unused")
 	private static class TestController {
@@ -228,8 +225,10 @@ public class DispatcherHandlerErrorTests {
 		}
 	}
 
+
 	private static class Foo {
 	}
+
 
 	private static class ServerError500ExceptionHandler implements WebExceptionHandler {
 

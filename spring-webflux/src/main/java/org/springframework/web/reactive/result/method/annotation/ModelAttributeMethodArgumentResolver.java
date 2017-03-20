@@ -28,6 +28,7 @@ import org.springframework.core.ReactiveAdapter;
 import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.core.ResolvableType;
 import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.ui.Model;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.StringUtils;
@@ -39,6 +40,7 @@ import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.bind.support.WebExchangeDataBinder;
 import org.springframework.web.reactive.BindingContext;
 import org.springframework.web.reactive.result.method.HandlerMethodArgumentResolver;
+import org.springframework.web.reactive.result.method.HandlerMethodArgumentResolverSupport;
 import org.springframework.web.server.ServerWebExchange;
 
 /**
@@ -58,42 +60,24 @@ import org.springframework.web.server.ServerWebExchange;
  * @author Rossen Stoyanchev
  * @since 5.0
  */
-public class ModelAttributeMethodArgumentResolver implements HandlerMethodArgumentResolver {
-
-	private final ReactiveAdapterRegistry adapterRegistry;
+public class ModelAttributeMethodArgumentResolver extends HandlerMethodArgumentResolverSupport
+		implements HandlerMethodArgumentResolver {
 
 	private final boolean useDefaultResolution;
 
 
 	/**
-	 * Class constructor.
-	 * @param registry for adapting to other reactive types from and to Mono
-	 */
-	public ModelAttributeMethodArgumentResolver(ReactiveAdapterRegistry registry) {
-		this(registry, false);
-	}
-
-	/**
 	 * Class constructor with a default resolution mode flag.
-	 * @param registry for adapting to other reactive types from and to Mono
+	 * @param adapterRegistry for adapting to other reactive types from and to Mono
 	 * @param useDefaultResolution if "true", non-simple method arguments and
 	 * return values are considered model attributes with or without a
 	 * {@code @ModelAttribute} annotation present.
 	 */
-	public ModelAttributeMethodArgumentResolver(ReactiveAdapterRegistry registry,
+	public ModelAttributeMethodArgumentResolver(ReactiveAdapterRegistry adapterRegistry,
 			boolean useDefaultResolution) {
 
-		Assert.notNull(registry, "'ReactiveAdapterRegistry' is required.");
+		super(adapterRegistry);
 		this.useDefaultResolution = useDefaultResolution;
-		this.adapterRegistry = registry;
-	}
-
-
-	/**
-	 * Return the configured {@link ReactiveAdapterRegistry}.
-	 */
-	public ReactiveAdapterRegistry getAdapterRegistry() {
-		return this.adapterRegistry;
 	}
 
 
@@ -102,16 +86,8 @@ public class ModelAttributeMethodArgumentResolver implements HandlerMethodArgume
 		if (parameter.hasParameterAnnotation(ModelAttribute.class)) {
 			return true;
 		}
-		if (this.useDefaultResolution) {
-			Class<?> clazz = parameter.getParameterType();
-			ReactiveAdapter adapter = getAdapterRegistry().getAdapter(clazz);
-			if (adapter != null) {
-				if (adapter.isNoValue() || adapter.isMultiValue()) {
-					return false;
-				}
-				clazz = ResolvableType.forMethodParameter(parameter).getGeneric(0).getRawClass();
-			}
-			return !BeanUtils.isSimpleProperty(clazz);
+		else if (this.useDefaultResolution) {
+			return checkParamType(parameter, type -> !BeanUtils.isSimpleProperty(type));
 		}
 		return false;
 	}
@@ -122,9 +98,14 @@ public class ModelAttributeMethodArgumentResolver implements HandlerMethodArgume
 
 		ResolvableType type = ResolvableType.forMethodParameter(parameter);
 		ReactiveAdapter adapter = getAdapterRegistry().getAdapter(type.resolve());
-		Class<?> valueType = (adapter != null ? type.resolveGeneric(0) : parameter.getParameterType());
+		ResolvableType valueType = (adapter != null ? type.getGeneric(0) : type);
+
+		Assert.state(adapter == null || !adapter.isMultiValue(),
+				getClass().getSimpleName() + " doesn't support multi-value reactive type wrapper: " +
+						parameter.getGenericParameterType());
+
 		String name = getAttributeName(valueType, parameter);
-		Mono<?> valueMono = getAttributeMono(name, valueType, parameter, context, exchange);
+		Mono<?> valueMono = getAttributeMono(name, valueType, context.getModel());
 
 		Map<String, Object> model = context.getModel().asMap();
 		MonoProcessor<BindingResult> bindingResultMono = MonoProcessor.create();
@@ -146,10 +127,10 @@ public class ModelAttributeMethodArgumentResolver implements HandlerMethodArgume
 						if (adapter != null) {
 							return adapter.fromPublisher(errors.hasErrors() ?
 									Mono.error(new WebExchangeBindException(parameter, errors)) :
-									Mono.just(value));
+									valueMono);
 						}
 						else {
-							if (errors.hasErrors() && checkErrorsArgument(parameter)) {
+							if (errors.hasErrors() && !hasErrorsArgument(parameter)) {
 								throw new WebExchangeBindException(parameter, errors);
 							}
 							return value;
@@ -158,46 +139,37 @@ public class ModelAttributeMethodArgumentResolver implements HandlerMethodArgume
 		});
 	}
 
-	private String getAttributeName(Class<?> valueType, MethodParameter parameter) {
+	private String getAttributeName(ResolvableType valueType, MethodParameter parameter) {
 		ModelAttribute annot = parameter.getParameterAnnotation(ModelAttribute.class);
 		if (annot != null && StringUtils.hasText(annot.value())) {
 			return annot.value();
 		}
 		// TODO: Conventions does not deal with async wrappers
-		return ClassUtils.getShortNameAsProperty(valueType);
+		return ClassUtils.getShortNameAsProperty(valueType.getRawClass());
 	}
 
-	private Mono<?> getAttributeMono(String attributeName, Class<?> attributeType,
-			MethodParameter param, BindingContext context, ServerWebExchange exchange) {
-
-		Object attribute = context.getModel().asMap().get(attributeName);
+	private Mono<?> getAttributeMono(String attributeName, ResolvableType attributeType, Model model) {
+		Object attribute = model.asMap().get(attributeName);
 		if (attribute == null) {
-			attribute = createAttribute(attributeName, attributeType, param, context, exchange);
+			attribute = BeanUtils.instantiateClass(attributeType.getRawClass());
 		}
-		if (attribute != null) {
-			ReactiveAdapter adapterFrom = getAdapterRegistry().getAdapter(null, attribute);
-			if (adapterFrom != null) {
-				Assert.isTrue(!adapterFrom.isMultiValue(), "Data binding supports single-value async types.");
-				return Mono.from(adapterFrom.toPublisher(attribute));
-			}
+		ReactiveAdapter adapterFrom = getAdapterRegistry().getAdapter(null, attribute);
+		if (adapterFrom != null) {
+			Assert.isTrue(!adapterFrom.isMultiValue(), "Data binding supports single-value async types.");
+			return Mono.from(adapterFrom.toPublisher(attribute));
 		}
-		return Mono.justOrEmpty(attribute);
+		else {
+			return Mono.justOrEmpty(attribute);
+		}
 	}
 
-
-	protected Object createAttribute(String attributeName, Class<?> attributeType,
-			MethodParameter parameter, BindingContext context, ServerWebExchange exchange) {
-
-		return BeanUtils.instantiateClass(attributeType);
-	}
-
-	protected boolean checkErrorsArgument(MethodParameter methodParam) {
+	private boolean hasErrorsArgument(MethodParameter methodParam) {
 		int i = methodParam.getParameterIndex();
 		Class<?>[] paramTypes = methodParam.getMethod().getParameterTypes();
-		return paramTypes.length <= (i + 1) || !Errors.class.isAssignableFrom(paramTypes[i + 1]);
+		return paramTypes.length > i && Errors.class.isAssignableFrom(paramTypes[i + 1]);
 	}
 
-	protected void validateIfApplicable(WebExchangeDataBinder binder, MethodParameter parameter) {
+	private void validateIfApplicable(WebExchangeDataBinder binder, MethodParameter parameter) {
 		Annotation[] annotations = parameter.getParameterAnnotations();
 		for (Annotation ann : annotations) {
 			Validated validAnnot = AnnotationUtils.getAnnotation(ann, Validated.class);

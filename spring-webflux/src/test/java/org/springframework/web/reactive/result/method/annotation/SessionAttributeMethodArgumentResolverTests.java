@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.core.DefaultParameterNameDiscoverer;
 import org.springframework.core.GenericTypeResolver;
 import org.springframework.core.MethodParameter;
+import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.core.annotation.SynthesizingMethodParameter;
 import org.springframework.format.support.DefaultFormattingConversionService;
 import org.springframework.http.server.reactive.ServerHttpRequest;
@@ -55,6 +56,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link SessionAttributeMethodArgumentResolver}.
+ *
  * @author Rossen Stoyanchev
  */
 public class SessionAttributeMethodArgumentResolverTests {
@@ -69,11 +71,11 @@ public class SessionAttributeMethodArgumentResolverTests {
 
 
 	@Before
-	@SuppressWarnings("ConfusingArgumentToVarargsMethod")
-	public void setUp() throws Exception {
+	public void setup() throws Exception {
 		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
 		context.refresh();
-		this.resolver = new SessionAttributeMethodArgumentResolver(context.getBeanFactory());
+		ReactiveAdapterRegistry adapterRegistry = new ReactiveAdapterRegistry();
+		this.resolver = new SessionAttributeMethodArgumentResolver(context.getBeanFactory(), adapterRegistry);
 
 		this.session = mock(WebSession.class);
 		WebSessionManager sessionManager = new MockWebSessionManager(this.session);
@@ -83,6 +85,7 @@ public class SessionAttributeMethodArgumentResolverTests {
 
 		this.handleMethod = ReflectionUtils.findMethod(getClass(), "handleWithSessionAttribute", (Class<?>[]) null);
 	}
+
 
 	@Test
 	public void supportsParameter() throws Exception {
@@ -129,7 +132,7 @@ public class SessionAttributeMethodArgumentResolverTests {
 		Mono<Object> mono = this.resolver.resolveArgument(param, new BindingContext(), this.exchange);
 		assertNotNull(mono.block());
 		assertEquals(Optional.class, mono.block().getClass());
-		assertFalse(((Optional) mono.block()).isPresent());
+		assertFalse(((Optional<?>) mono.block()).isPresent());
 
 		ConfigurableWebBindingInitializer initializer = new ConfigurableWebBindingInitializer();
 		initializer.setConversionService(new DefaultFormattingConversionService());
@@ -141,7 +144,7 @@ public class SessionAttributeMethodArgumentResolverTests {
 
 		assertNotNull(mono.block());
 		assertEquals(Optional.class, mono.block().getClass());
-		Optional optional = (Optional) mono.block();
+		Optional<?> optional = (Optional<?>) mono.block();
 		assertTrue(optional.isPresent());
 		assertSame(foo, optional.get());
 	}

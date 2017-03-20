@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,16 +21,14 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.jetbrains.annotations.NotNull;
 import org.junit.Before;
 import org.junit.Test;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.http.server.reactive.test.MockServerHttpRequest;
-import org.springframework.mock.http.server.reactive.test.MockServerHttpResponse;
+import org.springframework.mock.http.server.reactive.test.MockServerWebExchange;
 import org.springframework.web.reactive.HandlerMapping;
-import org.springframework.web.server.adapter.DefaultServerWebExchange;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -44,15 +42,12 @@ import static org.junit.Assert.assertTrue;
  */
 public class RedirectViewTests {
 
-	private MockServerHttpRequest request;
-
-	private MockServerHttpResponse response;
+	private MockServerWebExchange exchange;
 
 
 	@Before
-	public void setUp() {
-		this.request = MockServerHttpRequest.get("/").contextPath("/context").build();
-		this.response = new MockServerHttpResponse();
+	public void setup() {
+		this.exchange = MockServerHttpRequest.get("/").contextPath("/context").toExchange();
 	}
 
 
@@ -66,34 +61,34 @@ public class RedirectViewTests {
 	public void defaultStatusCode() {
 		String url = "http://url.somewhere.com";
 		RedirectView view = new RedirectView(url);
-		view.render(new HashMap<>(), MediaType.TEXT_HTML, createExchange());
-		assertEquals(HttpStatus.SEE_OTHER, this.response.getStatusCode());
-		assertEquals(URI.create(url), this.response.getHeaders().getLocation());
+		view.render(new HashMap<>(), MediaType.TEXT_HTML, this.exchange);
+		assertEquals(HttpStatus.SEE_OTHER, this.exchange.getResponse().getStatusCode());
+		assertEquals(URI.create(url), this.exchange.getResponse().getHeaders().getLocation());
 	}
 
 	@Test
 	public void customStatusCode() {
 		String url = "http://url.somewhere.com";
 		RedirectView view = new RedirectView(url, HttpStatus.FOUND);
-		view.render(new HashMap<>(), MediaType.TEXT_HTML, createExchange());
-		assertEquals(HttpStatus.FOUND, this.response.getStatusCode());
-		assertEquals(URI.create(url), this.response.getHeaders().getLocation());
+		view.render(new HashMap<>(), MediaType.TEXT_HTML, this.exchange);
+		assertEquals(HttpStatus.FOUND, this.exchange.getResponse().getStatusCode());
+		assertEquals(URI.create(url), this.exchange.getResponse().getHeaders().getLocation());
 	}
 
 	@Test
 	public void contextRelative() {
 		String url = "/test.html";
 		RedirectView view = new RedirectView(url);
-		view.render(new HashMap<>(), MediaType.TEXT_HTML, createExchange());
-		assertEquals(URI.create("/context/test.html"), this.response.getHeaders().getLocation());
+		view.render(new HashMap<>(), MediaType.TEXT_HTML, this.exchange);
+		assertEquals(URI.create("/context/test.html"), this.exchange.getResponse().getHeaders().getLocation());
 	}
 
 	@Test
 	public void contextRelativeQueryParam() {
 		String url = "/test.html?id=1";
 		RedirectView view = new RedirectView(url);
-		view.render(new HashMap<>(), MediaType.TEXT_HTML, createExchange());
-		assertEquals(URI.create("/context/test.html?id=1"), this.response.getHeaders().getLocation());
+		view.render(new HashMap<>(), MediaType.TEXT_HTML, this.exchange);
+		assertEquals(URI.create("/context/test.html?id=1"), this.exchange.getResponse().getHeaders().getLocation());
 	}
 
 	@Test
@@ -116,35 +111,29 @@ public class RedirectViewTests {
 		String url = "http://url.somewhere.com?foo={foo}";
 		Map<String, String> model = Collections.singletonMap("foo", "bar");
 		RedirectView view = new RedirectView(url);
-		view.render(model, MediaType.TEXT_HTML, createExchange());
-		assertEquals(URI.create("http://url.somewhere.com?foo=bar"), this.response.getHeaders().getLocation());
+		view.render(model, MediaType.TEXT_HTML, this.exchange);
+		assertEquals(URI.create("http://url.somewhere.com?foo=bar"), this.exchange.getResponse().getHeaders().getLocation());
 	}
 
 	@Test
 	public void expandUriTemplateVariablesFromExchangeAttribute() {
 		String url = "http://url.somewhere.com?foo={foo}";
 		Map<String, String> attributes = Collections.singletonMap("foo", "bar");
-		DefaultServerWebExchange exchange = createExchange();
-		exchange.getAttributes().put(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, attributes);
+		this.exchange.getAttributes().put(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, attributes);
 		RedirectView view = new RedirectView(url);
 		view.render(new HashMap<>(), MediaType.TEXT_HTML, exchange);
-		assertEquals(URI.create("http://url.somewhere.com?foo=bar"), this.response.getHeaders().getLocation());
+		assertEquals(URI.create("http://url.somewhere.com?foo=bar"), this.exchange.getResponse().getHeaders().getLocation());
 	}
 
 	@Test
 	public void propagateQueryParams() throws Exception {
 		RedirectView view = new RedirectView("http://url.somewhere.com?foo=bar#bazz");
 		view.setPropagateQuery(true);
-		this.request = MockServerHttpRequest.get("http://url.somewhere.com?a=b&c=d").build();
-		view.render(new HashMap<>(), MediaType.TEXT_HTML, createExchange());
-		assertEquals(HttpStatus.SEE_OTHER, this.response.getStatusCode());
+		this.exchange = MockServerHttpRequest.get("http://url.somewhere.com?a=b&c=d").toExchange();
+		view.render(new HashMap<>(), MediaType.TEXT_HTML, this.exchange);
+		assertEquals(HttpStatus.SEE_OTHER, this.exchange.getResponse().getStatusCode());
 		assertEquals(URI.create("http://url.somewhere.com?foo=bar&a=b&c=d#bazz"),
-				this.response.getHeaders().getLocation());
-	}
-
-	@NotNull
-	private DefaultServerWebExchange createExchange() {
-		return new DefaultServerWebExchange(this.request, this.response);
+				this.exchange.getResponse().getHeaders().getLocation());
 	}
 
 }

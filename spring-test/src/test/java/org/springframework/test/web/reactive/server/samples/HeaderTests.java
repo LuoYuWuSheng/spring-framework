@@ -13,11 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.test.web.reactive.server.samples;
 
-import java.util.Arrays;
-
-import org.junit.Before;
 import org.junit.Test;
 
 import org.springframework.http.ResponseEntity;
@@ -27,43 +25,34 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import static org.junit.Assert.assertEquals;
-
 /**
  * Tests with custom headers.
  *
  * @author Rossen Stoyanchev
+ * @since 5.0
  */
-@SuppressWarnings("unused")
 public class HeaderTests {
 
-	private WebTestClient client;
-
-
-	@Before
-	public void setUp() throws Exception {
-		this.client = WebTestClient
-				.bindToController(new TestController())
-				.webClientSpec().baseUrl("/header")
-				.build();
-	}
+	private final WebTestClient client = WebTestClient
+			.bindToController(new TestController())
+			.configureClient().baseUrl("/header")
+			.build();
 
 
 	@Test
 	public void requestResponseHeaderPair() throws Exception {
 		this.client.get().uri("/request-response-pair").header("h1", "in")
 				.exchange()
-				.assertStatus().isOk()
-				.assertHeader("h1").isEqualTo("in-out");
+				.expectStatus().isOk()
+				.expectHeader().valueEquals("h1", "in-out");
 	}
 
 	@Test
-	public void headerConsumer() throws Exception {
+	public void headerMultivalue() throws Exception {
 		this.client.get().uri("/multivalue")
 				.exchange()
-				.assertStatus().isOk()
-				.assertHeader("h1").consume(value -> assertEquals("v1", value))
-				.assertHeader("h1").values().consume(values -> assertEquals(Arrays.asList("v1", "v2", "v3"), values));
+				.expectStatus().isOk()
+				.expectHeader().valueEquals("h1", "v1", "v2", "v3");
 	}
 
 

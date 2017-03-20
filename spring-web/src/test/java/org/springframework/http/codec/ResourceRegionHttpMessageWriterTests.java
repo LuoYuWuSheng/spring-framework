@@ -30,7 +30,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import org.springframework.core.ResolvableType;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.ResourceRegion;
@@ -40,8 +39,10 @@ import org.springframework.mock.http.server.reactive.test.MockServerHttpResponse
 import org.springframework.util.MimeTypeUtils;
 import org.springframework.util.StringUtils;
 
-import static org.hamcrest.Matchers.*;
-import static org.junit.Assert.*;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.startsWith;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertThat;
 
 /**
  * Unit tests for {@link ResourceRegionHttpMessageWriter}.
@@ -67,24 +68,12 @@ public class ResourceRegionHttpMessageWriterTests {
 
 
 	@Test
-	public void defaultContentType() throws Exception {
-		assertEquals(MimeTypeUtils.APPLICATION_OCTET_STREAM,
-				this.writer.getDefaultContentType(ResolvableType.forClass(ResourceRegion.class)));
-	}
-
-	@Test
-	public void writableMediaTypes() throws Exception {
-		assertThat(this.writer.getWritableMediaTypes(),
-				containsInAnyOrder(MimeTypeUtils.APPLICATION_OCTET_STREAM, MimeTypeUtils.ALL));
-	}
-
-	@Test
 	public void shouldWriteResourceRegion() throws Exception {
 
 		ResourceRegion region = new ResourceRegion(this.resource, 0, 6);
+		Map<String, Object> hints = Collections.emptyMap();
 
-		Mono<Void> mono = this.writer.write(Mono.just(region), ResolvableType.forClass(ResourceRegion.class),
-				MediaType.TEXT_PLAIN, this.response, Collections.emptyMap());
+		Mono<Void> mono = this.writer.writeRegions(Mono.just(region), MediaType.TEXT_PLAIN, this.response, hints);
 		StepVerifier.create(mono).expectComplete().verify();
 
 		assertThat(this.response.getHeaders().getContentType(), is(MediaType.TEXT_PLAIN));
@@ -107,8 +96,7 @@ public class ResourceRegionHttpMessageWriterTests {
 		Map<String, Object> hints = new HashMap<>(1);
 		hints.put(ResourceRegionHttpMessageWriter.BOUNDARY_STRING_HINT, boundary);
 
-		Mono<Void> mono = this.writer.write(regions, ResolvableType.forClass(ResourceRegion.class),
-				MediaType.TEXT_PLAIN, this.response, hints);
+		Mono<Void> mono = this.writer.writeRegions(regions, MediaType.TEXT_PLAIN, this.response, hints);
 		StepVerifier.create(mono).expectComplete().verify();
 
 		HttpHeaders headers = this.response.getHeaders();

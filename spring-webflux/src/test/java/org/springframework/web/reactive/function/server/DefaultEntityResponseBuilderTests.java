@@ -42,11 +42,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.codec.EncoderHttpMessageWriter;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.mock.http.server.reactive.test.MockServerHttpRequest;
-import org.springframework.mock.http.server.reactive.test.MockServerHttpResponse;
+import org.springframework.mock.http.server.reactive.test.MockServerWebExchange;
 import org.springframework.web.reactive.function.BodyInserter;
-import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.adapter.DefaultServerWebExchange;
-import org.springframework.web.server.session.MockWebSessionManager;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertNotNull;
@@ -122,7 +119,7 @@ public class DefaultEntityResponseBuilderTests {
 	}
 
 	@Test
-	public void eTag() throws Exception {
+	public void etag() throws Exception {
 		String body = "foo";
 		Mono<EntityResponse<String>> result = EntityResponse.fromObject(body).eTag("foo").build();
 		StepVerifier.create(result)
@@ -192,10 +189,7 @@ public class DefaultEntityResponseBuilderTests {
 
 		Mono<EntityResponse<Publisher<String>>> result = EntityResponse.fromPublisher(publisher, String.class).build();
 
-		MockServerHttpRequest request = MockServerHttpRequest.get("http://localhost").build();
-		MockServerHttpResponse mockResponse = new MockServerHttpResponse();
-		ServerWebExchange exchange =
-				new DefaultServerWebExchange(request, mockResponse, new MockWebSessionManager());
+		MockServerWebExchange exchange = MockServerHttpRequest.get("http://localhost").toExchange();
 
 		HandlerStrategies strategies = HandlerStrategies.empty().messageWriter(new EncoderHttpMessageWriter<>(new CharSequenceEncoder())).build();
 
@@ -210,7 +204,7 @@ public class DefaultEntityResponseBuilderTests {
 				.expectComplete()
 				.verify();
 
-		assertNotNull(mockResponse.getBody());
+		assertNotNull(exchange.getResponse().getBody());
 	}
 
 }

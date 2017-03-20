@@ -13,49 +13,45 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.test.web.reactive.server;
 
 import java.net.URI;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 import java.util.function.Function;
 
 import reactor.core.publisher.Mono;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.client.reactive.ClientHttpConnector;
 import org.springframework.http.client.reactive.ClientHttpRequest;
 import org.springframework.http.client.reactive.ClientHttpResponse;
+import org.springframework.util.Assert;
 
 /**
- * Decorates a {@link ClientHttpConnector} in order to capture executed requests
- * and responses and notify one or more registered listeners. This is helpful
- * for access to the actual {@link ClientHttpRequest} sent and the
- * {@link ClientHttpResponse} returned by the server.
+ * Decorate another {@link ClientHttpConnector} with the purpose of
+ * intercepting, capturing, and exposing actual request and response data
+ * transmitted to and received from the server.
  *
  * @author Rossen Stoyanchev
  * @since 5.0
+ * @see HttpHandlerConnector
  */
 class WiretapConnector implements ClientHttpConnector {
 
+	public static final String REQUEST_ID_HEADER_NAME = "request-id";
+
+
 	private final ClientHttpConnector delegate;
 
-	private final List<Consumer<Info>> listeners;
+	private final Map<String, ExchangeResult> exchanges = new ConcurrentHashMap<>();
 
 
 	public WiretapConnector(ClientHttpConnector delegate) {
 		this.delegate = delegate;
-		this.listeners = new CopyOnWriteArrayList<>();
-	}
-
-
-	/**
-	 * Register a listener to consume exchanged requests and responses.
-	 */
-	public void addListener(Consumer<Info> consumer) {
-		this.listeners.add(consumer);
 	}
 
 
@@ -63,40 +59,38 @@ class WiretapConnector implements ClientHttpConnector {
 	public Mono<ClientHttpResponse> connect(HttpMethod method, URI uri,
 			Function<? super ClientHttpRequest, Mono<Void>> requestCallback) {
 
-		AtomicReference<ClientHttpRequest> requestRef = new AtomicReference<>();
+		AtomicReference<WiretapClientHttpRequest> requestRef = new AtomicReference<>();
 
 		return this.delegate
 				.connect(method, uri, request -> {
-					requestRef.set(request);
-					return requestCallback.apply(request);
+					WiretapClientHttpRequest wrapped = new WiretapClientHttpRequest(request);
+					requestRef.set(wrapped);
+					return requestCallback.apply(wrapped);
 				})
-				.doOnNext(response -> {
-					Info info = new Info(requestRef.get(), response);
-					this.listeners.forEach(consumer -> consumer.accept(info));
+				.map(response ->  {
+					WiretapClientHttpRequest wrappedRequest = requestRef.get();
+					String requestId = getRequestId(wrappedRequest.getHeaders());
+					Assert.notNull(requestId, "No request-id header");
+					WiretapClientHttpResponse wrappedResponse = new WiretapClientHttpResponse(response);
+					ExchangeResult result = new ExchangeResult(wrappedRequest, wrappedResponse);
+					this.exchanges.put(requestId, result);
+					return wrappedResponse;
 				});
 	}
 
+	public static String getRequestId(HttpHeaders headers) {
+		String requestId = headers.getFirst(REQUEST_ID_HEADER_NAME);
+		Assert.notNull(requestId, "No request-id header");
+		return requestId;
+	}
 
-	public static class Info {
-
-		private final ClientHttpRequest request;
-
-		private final ClientHttpResponse response;
-
-
-		public Info(ClientHttpRequest request, ClientHttpResponse response) {
-			this.request = request;
-			this.response = response;
-		}
-
-
-		public ClientHttpRequest getRequest() {
-			return this.request;
-		}
-
-		public ClientHttpResponse getResponse() {
-			return this.response;
-		}
+	/**
+	 * Retrieve the {@code ExchangeResult} for the given "request-id" header value.
+	 */
+	public ExchangeResult claimRequest(String requestId) {
+		ExchangeResult result = this.exchanges.get(requestId);
+		Assert.notNull(result, "No match for request with id [" + requestId + "]");
+		return result;
 	}
 
 }

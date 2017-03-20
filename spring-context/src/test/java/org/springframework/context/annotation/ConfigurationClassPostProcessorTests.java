@@ -39,6 +39,7 @@ import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor;
+import org.springframework.beans.factory.annotation.Lookup;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.QualifierAnnotationAutowireCandidateResolver;
 import org.springframework.beans.factory.config.BeanDefinitionHolder;
@@ -66,17 +67,16 @@ import static org.junit.Assert.*;
  */
 public class ConfigurationClassPostProcessorTests {
 
-	private DefaultListableBeanFactory beanFactory;
+	private final DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
 
 
 	@Before
-	public void setUp() {
-		DefaultListableBeanFactory bf = new DefaultListableBeanFactory();
+	public void setup() {
 		QualifierAnnotationAutowireCandidateResolver acr = new QualifierAnnotationAutowireCandidateResolver();
-		acr.setBeanFactory(bf);
-		bf.setAutowireCandidateResolver(acr);
-		this.beanFactory = bf;
+		acr.setBeanFactory(this.beanFactory);
+		this.beanFactory.setAutowireCandidateResolver(acr);
 	}
+
 
 	/**
 	 * Enhanced {@link Configuration} classes are only necessary for respecting
@@ -780,6 +780,14 @@ public class ConfigurationClassPostProcessorTests {
 		assertSame(ctx.getBean(TestBean.class), bean.testBeans.get(0));
 	}
 
+	@Test
+	public void testBeanLookupFromSameConfigurationClass() {
+		ApplicationContext ctx = new AnnotationConfigApplicationContext(BeanLookupConfiguration.class);
+		BeanLookupConfiguration bean = ctx.getBean(BeanLookupConfiguration.class);
+		assertNotNull(bean.getTestBean());
+		assertSame(ctx.getBean(TestBean.class), bean.getTestBean());
+	}
+
 
 	// -------------------------------------------------------------------------
 
@@ -949,7 +957,6 @@ public class ConfigurationClassPostProcessorTests {
 			};
 		}
 	}
-
 
 	@Configuration
 	public static class RawRepositoryConfiguration {
@@ -1448,6 +1455,18 @@ public class ConfigurationClassPostProcessorTests {
 		public TestBean thing() {
 			return new TestBean();
 		}
+	}
+
+	@Configuration
+	static abstract class BeanLookupConfiguration {
+
+		@Bean
+		public TestBean thing() {
+			return new TestBean();
+		}
+
+		@Lookup
+		public abstract TestBean getTestBean();
 	}
 
 }

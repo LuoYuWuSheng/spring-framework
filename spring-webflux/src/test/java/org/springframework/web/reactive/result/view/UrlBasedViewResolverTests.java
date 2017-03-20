@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,20 +16,21 @@
 
 package org.springframework.web.reactive.result.view;
 
+import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
 
-import static org.junit.Assert.*;
 import org.junit.Before;
 import org.junit.Test;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import org.springframework.context.support.StaticApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.server.ServerWebExchange;
 
-import reactor.test.StepVerifier;
+import static org.junit.Assert.*;
 
 /**
  * Unit tests for {@link UrlBasedViewResolver}.
@@ -41,30 +42,32 @@ public class UrlBasedViewResolverTests {
 
 	private UrlBasedViewResolver resolver;
 
+
 	@Before
-	public void setUp() {
+	public void setup() {
 		StaticApplicationContext context = new StaticApplicationContext();
 		context.refresh();
-		resolver = new UrlBasedViewResolver();
-		resolver.setApplicationContext(context);
+		this.resolver = new UrlBasedViewResolver();
+		this.resolver.setApplicationContext(context);
 	}
+
 
 	@Test
 	public void viewNames() throws Exception {
-		resolver.setViewClass(TestView.class);
-		resolver.setViewNames("my*");
+		this.resolver.setViewClass(TestView.class);
+		this.resolver.setViewNames("my*");
 
-		Mono<View> mono = resolver.resolveViewName("my-view", Locale.US);
+		Mono<View> mono = this.resolver.resolveViewName("my-view", Locale.US);
 		assertNotNull(mono.block());
 
-		mono = resolver.resolveViewName("not-my-view", Locale.US);
+		mono = this.resolver.resolveViewName("not-my-view", Locale.US);
 		assertNull(mono.block());
 	}
 
 	@Test
 	public void redirectView() throws Exception {
-		Mono<View> mono = resolver.resolveViewName("redirect:foo", Locale.US);
-		assertNotNull(mono.block());
+		Mono<View> mono = this.resolver.resolveViewName("redirect:foo", Locale.US);
+
 		StepVerifier.create(mono)
 				.consumeNextWith(view -> {
 					assertEquals(RedirectView.class, view.getClass());
@@ -72,14 +75,15 @@ public class UrlBasedViewResolverTests {
 					assertEquals(redirectView.getUrl(), "foo");
 					assertEquals(redirectView.getStatusCode(), HttpStatus.SEE_OTHER);
 				})
-				.expectComplete();
+				.expectComplete()
+				.verify(Duration.ZERO);
 	}
 
 	@Test
 	public void customizedRedirectView() throws Exception {
-		resolver.setRedirectViewProvider(url -> new RedirectView(url, HttpStatus.FOUND));
-		Mono<View> mono = resolver.resolveViewName("redirect:foo", Locale.US);
-		assertNotNull(mono.block());
+		this.resolver.setRedirectViewProvider(url -> new RedirectView(url, HttpStatus.FOUND));
+		Mono<View> mono = this.resolver.resolveViewName("redirect:foo", Locale.US);
+
 		StepVerifier.create(mono)
 				.consumeNextWith(view -> {
 					assertEquals(RedirectView.class, view.getClass());
@@ -87,8 +91,10 @@ public class UrlBasedViewResolverTests {
 					assertEquals(redirectView.getUrl(), "foo");
 					assertEquals(redirectView.getStatusCode(), HttpStatus.FOUND);
 				})
-				.expectComplete();
+				.expectComplete()
+				.verify(Duration.ZERO);
 	}
+
 
 	private static class TestView extends AbstractUrlBasedView {
 
@@ -100,6 +106,7 @@ public class UrlBasedViewResolverTests {
 		@Override
 		protected Mono<Void> renderInternal(Map<String, Object> attributes, MediaType contentType,
 				ServerWebExchange exchange) {
+
 			return Mono.empty();
 		}
 	}

@@ -106,6 +106,39 @@ public class DefaultServerResponseBuilderTests {
 	}
 
 	@Test
+	public void seeOther() throws Exception {
+		URI location = URI.create("http://example.com");
+		Mono<ServerResponse> result = ServerResponse.seeOther(location).build();
+		StepVerifier.create(result)
+				.expectNextMatches(response -> HttpStatus.SEE_OTHER.equals(response.statusCode()) &&
+						location.equals(response.headers().getLocation()))
+				.expectComplete()
+				.verify();
+	}
+
+	@Test
+	public void temporaryRedirect() throws Exception {
+		URI location = URI.create("http://example.com");
+		Mono<ServerResponse> result = ServerResponse.temporaryRedirect(location).build();
+		StepVerifier.create(result)
+				.expectNextMatches(response -> HttpStatus.TEMPORARY_REDIRECT.equals(response.statusCode()) &&
+						location.equals(response.headers().getLocation()))
+				.expectComplete()
+				.verify();
+	}
+
+	@Test
+	public void permanentRedirect() throws Exception {
+		URI location = URI.create("http://example.com");
+		Mono<ServerResponse> result = ServerResponse.permanentRedirect(location).build();
+		StepVerifier.create(result)
+				.expectNextMatches(response -> HttpStatus.PERMANENT_REDIRECT.equals(response.statusCode()) &&
+						location.equals(response.headers().getLocation()))
+				.expectComplete()
+				.verify();
+	}
+
+	@Test
 	public void badRequest() throws Exception {
 		Mono<ServerResponse> result = ServerResponse.badRequest().build();
 		StepVerifier.create(result)

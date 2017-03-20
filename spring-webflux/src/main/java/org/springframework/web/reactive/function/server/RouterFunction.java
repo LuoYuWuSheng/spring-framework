@@ -21,9 +21,9 @@ import reactor.core.publisher.Mono;
 /**
  * Represents a function that routes to a {@linkplain HandlerFunction handler function}.
  *
- * @param <T> the type of the {@linkplain HandlerFunction handler function} to route to
  * @author Arjen Poutsma
  * @since 5.0
+ * @param <T> the type of the {@linkplain HandlerFunction handler function} to route to
  * @see RouterFunctions
  */
 @FunctionalInterface
@@ -47,7 +47,8 @@ public interface RouterFunction<T extends ServerResponse> {
 	 * @see #andOther(RouterFunction)
 	 */
 	default RouterFunction<T> and(RouterFunction<T> other) {
-		return request -> this.route(request).otherwiseIfEmpty(other.route(request));
+		return request -> this.route(request)
+				.otherwiseIfEmpty(Mono.defer(() -> other.route(request)));
 	}
 
 	/**
@@ -62,22 +63,38 @@ public interface RouterFunction<T extends ServerResponse> {
 	default RouterFunction<?> andOther(RouterFunction<?> other) {
 		return request -> this.route(request)
 				.map(RouterFunctions::cast)
-				.otherwiseIfEmpty(other.route(request).map(RouterFunctions::cast));
+				.otherwiseIfEmpty(
+						Mono.defer(() -> other.route(request).map(RouterFunctions::cast)));
 	}
 
 	/**
-	 * Return a composed routing function that first invokes this function,
-	 * and then routes to the given handler function if the given request predicate applies. This
-	 * method is a convenient combination of {@link #and(RouterFunction)} and
+	 * Return a composed routing function that routes to the given handler function if this
+	 * route does not match and the given request predicate applies. This method is a convenient
+	 * combination of {@link #and(RouterFunction)} and
 	 * {@link RouterFunctions#route(RequestPredicate, HandlerFunction)}.
-	 * @param predicate the predicate to test
-	 * @param handlerFunction the handler function to route to
-	 * @return a composed function that first routes with this function and then the function
-	 * created from {@code predicate} and {@code handlerFunction} if this
-	 * function has no result
+	 * @param predicate the predicate to test if this route does not match
+	 * @param handlerFunction the handler function to route to if this route does not match and
+	 * the predicate applies
+	 * @return a composed function that route to {@code handlerFunction} if this route does not
+	 * match and if {@code predicate} applies
 	 */
 	default RouterFunction<T> andRoute(RequestPredicate predicate, HandlerFunction<T> handlerFunction) {
 		return and(RouterFunctions.route(predicate, handlerFunction));
+	}
+
+	/**
+	 * Return a composed routing function that routes to the given router function if this
+	 * route does not match and the given request predicate applies. This method is a convenient
+	 * combination of {@link #and(RouterFunction)} and
+	 * {@link RouterFunctions#nest(RequestPredicate, RouterFunction)}.
+	 * @param predicate the predicate to test if this route does not match
+	 * @param routerFunction the router function to route to if this route does not match and
+	 * the predicate applies
+	 * @return a composed function that route to {@code routerFunction} if this route does not
+	 * match and if {@code predicate} applies
+	 */
+	default RouterFunction<T> andNest(RequestPredicate predicate, RouterFunction<T> routerFunction) {
+		return and(RouterFunctions.nest(predicate, routerFunction));
 	}
 
 	/**

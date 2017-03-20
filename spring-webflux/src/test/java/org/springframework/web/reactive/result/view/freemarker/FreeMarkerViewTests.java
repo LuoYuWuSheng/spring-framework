@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.springframework.web.reactive.result.view.freemarker;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Locale;
 
 import freemarker.template.Configuration;
@@ -31,11 +32,9 @@ import org.springframework.context.ApplicationContextException;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.mock.http.server.reactive.test.MockServerHttpRequest;
-import org.springframework.mock.http.server.reactive.test.MockServerHttpResponse;
+import org.springframework.mock.http.server.reactive.test.MockServerWebExchange;
 import org.springframework.ui.ExtendedModelMap;
 import org.springframework.ui.ModelMap;
-import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.adapter.DefaultServerWebExchange;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -48,9 +47,7 @@ public class FreeMarkerViewTests {
 	private static final String TEMPLATE_PATH = "classpath*:org/springframework/web/reactive/view/freemarker/";
 
 
-	private ServerWebExchange exchange;
-
-	private MockServerHttpResponse response;
+	private final MockServerWebExchange exchange = MockServerHttpRequest.get("/path").toExchange();
 
 	private GenericApplicationContext context;
 
@@ -61,7 +58,7 @@ public class FreeMarkerViewTests {
 
 
 	@Before
-	public void setUp() throws Exception {
+	public void setup() throws Exception {
 		this.context = new GenericApplicationContext();
 		this.context.refresh();
 
@@ -70,13 +67,6 @@ public class FreeMarkerViewTests {
 		configurer.setTemplateLoaderPath(TEMPLATE_PATH);
 		configurer.setResourceLoader(this.context);
 		this.freeMarkerConfig = configurer.createConfiguration();
-
-		FreeMarkerView fv = new FreeMarkerView();
-		fv.setApplicationContext(this.context);
-
-		MockServerHttpRequest request = MockServerHttpRequest.get("/path").build();
-		this.response = new MockServerHttpResponse();
-		this.exchange = new DefaultServerWebExchange(request, this.response);
 	}
 
 
@@ -117,9 +107,9 @@ public class FreeMarkerViewTests {
 
 		ModelMap model = new ExtendedModelMap();
 		model.addAttribute("hello", "hi FreeMarker");
-		view.render(model, null, this.exchange).blockMillis(5000);
+		view.render(model, null, this.exchange).block(Duration.ofMillis(5000));
 
-		StepVerifier.create(this.response.getBody())
+		StepVerifier.create(this.exchange.getResponse().getBody())
 				.consumeNextWith(buf -> assertEquals("<html><body>hi FreeMarker</body></html>", asString(buf)))
 				.expectComplete()
 				.verify();

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.test.web.reactive.server;
 
 import java.net.URI;
@@ -23,17 +24,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 import org.reactivestreams.Publisher;
 
 import org.springframework.context.ApplicationContext;
+import org.springframework.core.ResolvableType;
 import org.springframework.format.FormatterRegistry;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ClientHttpRequest;
 import org.springframework.http.codec.HttpMessageReader;
 import org.springframework.http.codec.HttpMessageWriter;
-import org.springframework.http.server.reactive.HttpHandler;
 import org.springframework.util.MultiValueMap;
 import org.springframework.validation.Validator;
 import org.springframework.web.reactive.accept.RequestedContentTypeResolverBuilder;
@@ -47,9 +49,8 @@ import org.springframework.web.reactive.function.client.ExchangeFunction;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.server.RouterFunction;
-import org.springframework.web.reactive.function.server.RouterFunctions;
-import org.springframework.web.server.adapter.HttpWebHandlerAdapter;
-import org.springframework.web.server.adapter.WebHttpHandlerBuilder;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
 import org.springframework.web.util.UriBuilder;
 import org.springframework.web.util.UriBuilderFactory;
 
@@ -125,6 +126,16 @@ public interface WebTestClient {
 	 */
 	WebTestClient filter(ExchangeFilterFunction filterFunction);
 
+	/**
+	 * Filter the client applying the given transformation function on the
+	 * {@code ServerWebExchange} to every request.
+	 * <p><strong>Note:</strong> this option is applicable only when testing
+	 * without an actual running server.
+	 * @param mutator the transformation function
+	 * @return the filtered client
+	 */
+	WebTestClient exchangeMutator(UnaryOperator<ServerWebExchange> mutator);
+
 
 	// Static, factory methods
 
@@ -134,7 +145,7 @@ public interface WebTestClient {
 	 * {@link org.springframework.web.reactive.config.EnableWebFlux @EnableWebFlux}
 	 * but can also be further customized through the returned spec.
 	 * @param controllers the controllers to test
-	 * @return spec for controller configuration and test client builder
+	 * @return spec for setting up controller configuration
 	 */
 	static ControllerSpec bindToController(Object... controllers) {
 		return new DefaultControllerSpec(controllers);
@@ -148,9 +159,8 @@ public interface WebTestClient {
 	 * @return the {@link WebTestClient} builder
 	 * @see org.springframework.web.reactive.config.EnableWebFlux
 	 */
-	static WebClientSpec bindToApplicationContext(ApplicationContext applicationContext) {
-		HttpHandler httpHandler = WebHttpHandlerBuilder.applicationContext(applicationContext).build();
-		return new DefaultWebClientSpec(httpHandler);
+	static MockServerSpec<?> bindToApplicationContext(ApplicationContext applicationContext) {
+		return new ApplicationContextSpec(applicationContext);
 	}
 
 	/**
@@ -158,25 +168,62 @@ public interface WebTestClient {
 	 * @param routerFunction the RouterFunction to test
 	 * @return the {@link WebTestClient} builder
 	 */
-	static WebClientSpec bindToRouterFunction(RouterFunction<?> routerFunction) {
-		HttpWebHandlerAdapter httpHandler = RouterFunctions.toHttpHandler(routerFunction);
-		return new DefaultWebClientSpec(httpHandler);
+	static MockServerSpec<?> bindToRouterFunction(RouterFunction<?> routerFunction) {
+		return new RouterFunctionSpec(routerFunction);
 	}
 
 	/**
 	 * Complete end-to-end integration tests with actual requests to a running server.
 	 * @return the {@link WebTestClient} builder
 	 */
-	static WebClientSpec bindToServer() {
-		return new DefaultWebClientSpec();
+	static Builder bindToServer() {
+		return new DefaultWebTestClientBuilder();
 	}
 
+
+	/**
+	 * Base specification for setting up tests without a server.
+	 */
+	interface MockServerSpec<B extends MockServerSpec<B>> {
+
+		/**
+		 * Configure a transformation function on {@code ServerWebExchange} to
+		 * be applied at the start of server-side, request processing.
+		 * @param mutator the transforming function.
+		 * @see ServerWebExchange#mutate()
+		 */
+		<T extends B> T exchangeMutator(UnaryOperator<ServerWebExchange> mutator);
+
+		/**
+		 * Configure {@link WebFilter}'s for server request processing.
+		 * @param filter one or more filters
+		 */
+		<T extends B> T webFilter(WebFilter... filter);
+
+		/**
+		 * Proceed to configure and build the test client.
+		 */
+		Builder configureClient();
+
+		/**
+		 * Shortcut to build the test client.
+		 */
+		WebTestClient build();
+
+	}
 
 	/**
 	 * Specification for customizing controller configuration equivalent to, and
 	 * internally delegating to, a {@link WebFluxConfigurer}.
 	 */
-	interface ControllerSpec {
+	interface ControllerSpec extends MockServerSpec<ControllerSpec> {
+
+		/**
+		 * Register one or more
+		 * {@link org.springframework.web.bind.annotation.ControllerAdvice
+		 * ControllerAdvice} instances to be used in tests.
+		 */
+		ControllerSpec controllerAdvice(Object... controllerAdvice);
 
 		/**
 		 * Customize content type resolution.
@@ -226,92 +273,47 @@ public interface WebTestClient {
 		 */
 		ControllerSpec viewResolvers(Consumer<ViewResolverRegistry> consumer);
 
-		/**
-		 * Proceed to configure the {@link WebClient} to test with.
-		 */
-		WebClientSpec webClientSpec();
-
-		/**
-		 * Shortcut to build the {@link WebTestClient}.
-		 */
-		WebTestClient build();
-
 	}
 
 	/**
 	 * Steps for customizing the {@link WebClient} used to test with
 	 * internally delegating to a {@link WebClient.Builder}.
 	 */
-	interface WebClientSpec {
+	interface Builder {
 
 		/**
 		 * Configure a base URI as described in
 		 * {@link org.springframework.web.reactive.function.client.WebClient#create(String)
 		 * WebClient.create(String)}.
-		 * @see #defaultUriVariables(Map)
-		 * @see #uriBuilderFactory(UriBuilderFactory)
 		 */
-		WebClientSpec baseUrl(String baseUrl);
+		Builder baseUrl(String baseUrl);
 
 		/**
-		 * Configure default URI variable values that will be used when expanding
-		 * URI templates using a {@link Map}.
-		 * @param defaultUriVariables the default values to use
-		 * @see #baseUrl(String)
-		 * @see #uriBuilderFactory(UriBuilderFactory)
+		 * Provide a pre-configured {@link UriBuilderFactory} instance as an
+		 * alternative to and effectively overriding {@link #baseUrl(String)}.
 		 */
-		WebClientSpec defaultUriVariables(Map<String, ?> defaultUriVariables);
-
-		/**
-		 * Provide a pre-configured {@link UriBuilderFactory} instance. This is
-		 * an alternative to and effectively overrides the following:
-		 * <ul>
-		 * <li>{@link #baseUrl(String)}
-		 * <li>{@link #defaultUriVariables(Map)}.
-		 * </ul>
-		 * @param uriBuilderFactory the URI builder factory to use
-		 * @see #baseUrl(String)
-		 * @see #defaultUriVariables(Map)
-		 */
-		WebClientSpec uriBuilderFactory(UriBuilderFactory uriBuilderFactory);
+		Builder uriBuilderFactory(UriBuilderFactory uriBuilderFactory);
 
 		/**
 		 * Add the given header to all requests that haven't added it.
 		 * @param headerName the header name
 		 * @param headerValues the header values
 		 */
-		WebClientSpec defaultHeader(String headerName, String... headerValues);
+		Builder defaultHeader(String headerName, String... headerValues);
 
 		/**
 		 * Add the given header to all requests that haven't added it.
 		 * @param cookieName the cookie name
 		 * @param cookieValues the cookie values
 		 */
-		WebClientSpec defaultCookie(String cookieName, String... cookieValues);
+		Builder defaultCookie(String cookieName, String... cookieValues);
 
 		/**
 		 * Configure the {@link ExchangeStrategies} to use.
 		 * <p>By default {@link ExchangeStrategies#withDefaults()} is used.
 		 * @param strategies the strategies to use
 		 */
-		WebClientSpec exchangeStrategies(ExchangeStrategies strategies);
-
-		/**
-		 * Proceed to building the {@link WebTestClient}.
-		 */
-		Builder builder();
-
-		/**
-		 * Shortcut to build the {@link WebTestClient}.
-		 */
-		WebTestClient build();
-
-	}
-
-	/**
-	 * Build steps to create a {@link WebTestClient}.
-	 */
-	interface Builder {
+		Builder exchangeStrategies(ExchangeStrategies strategies);
 
 		/**
 		 * Max amount of time to wait for responses.
@@ -330,12 +332,13 @@ public interface WebTestClient {
 
 
 	/**
-	 * Contract for specifying the URI for a request.
+	 * Specification for providing the URI of a request.
 	 */
 	interface UriSpec {
 
 		/**
 		 * Specify the URI using an absolute, fully constructed {@link URI}.
+		 * @return spec to add headers or perform the exchange
 		 */
 		HeaderSpec uri(URI uri);
 
@@ -343,6 +346,7 @@ public interface WebTestClient {
 		 * Specify the URI for the request using a URI template and URI variables.
 		 * If a {@link UriBuilderFactory} was configured for the client (e.g.
 		 * with a base URI) it will be used to expand the URI template.
+		 * @return spec to add headers or perform the exchange
 		 */
 		HeaderSpec uri(String uri, Object... uriVariables);
 
@@ -350,19 +354,21 @@ public interface WebTestClient {
 		 * Specify the URI for the request using a URI template and URI variables.
 		 * If a {@link UriBuilderFactory} was configured for the client (e.g.
 		 * with a base URI) it will be used to expand the URI template.
+		 * @return spec to add headers or perform the exchange
 		 */
 		HeaderSpec uri(String uri, Map<String, ?> uriVariables);
 
 		/**
 		 * Build the URI for the request with a {@link UriBuilder} obtained
 		 * through the {@link UriBuilderFactory} configured for this client.
+		 * @return spec to add headers or perform the exchange
 		 */
 		HeaderSpec uri(Function<UriBuilder, URI> uriFunction);
 
 	}
 
 	/**
-	 * Contract for specifying request headers leading up to the exchange.
+	 * Specification for adding request headers and performing an exchange.
 	 */
 	interface HeaderSpec {
 
@@ -370,7 +376,7 @@ public interface WebTestClient {
 		 * Set the list of acceptable {@linkplain MediaType media types}, as
 		 * specified by the {@code Accept} header.
 		 * @param acceptableMediaTypes the acceptable media types
-		 * @return this builder
+		 * @return the same instance
 		 */
 		HeaderSpec accept(MediaType... acceptableMediaTypes);
 
@@ -378,7 +384,7 @@ public interface WebTestClient {
 		 * Set the list of acceptable {@linkplain Charset charsets}, as specified
 		 * by the {@code Accept-Charset} header.
 		 * @param acceptableCharsets the acceptable charsets
-		 * @return this builder
+		 * @return the same instance
 		 */
 		HeaderSpec acceptCharset(Charset... acceptableCharsets);
 
@@ -386,7 +392,7 @@ public interface WebTestClient {
 		 * Set the length of the body in bytes, as specified by the
 		 * {@code Content-Length} header.
 		 * @param contentLength the content length
-		 * @return this builder
+		 * @return the same instance
 		 * @see HttpHeaders#setContentLength(long)
 		 */
 		HeaderSpec contentLength(long contentLength);
@@ -395,7 +401,7 @@ public interface WebTestClient {
 		 * Set the {@linkplain MediaType media type} of the body, as specified
 		 * by the {@code Content-Type} header.
 		 * @param contentType the content type
-		 * @return this builder
+		 * @return the same instance
 		 * @see HttpHeaders#setContentType(MediaType)
 		 */
 		HeaderSpec contentType(MediaType contentType);
@@ -404,7 +410,7 @@ public interface WebTestClient {
 		 * Add a cookie with the given name and value.
 		 * @param name the cookie name
 		 * @param value the cookie value
-		 * @return this builder
+		 * @return the same instance
 		 */
 		HeaderSpec cookie(String name, String value);
 
@@ -412,7 +418,7 @@ public interface WebTestClient {
 		 * Copy the given cookies into the entity's cookies map.
 		 *
 		 * @param cookies the existing cookies to copy from
-		 * @return this builder
+		 * @return the same instance
 		 */
 		HeaderSpec cookies(MultiValueMap<String, String> cookies);
 
@@ -421,14 +427,14 @@ public interface WebTestClient {
 		 * <p>The date should be specified as the number of milliseconds since
 		 * January 1, 1970 GMT.
 		 * @param ifModifiedSince the new value of the header
-		 * @return this builder
+		 * @return the same instance
 		 */
 		HeaderSpec ifModifiedSince(ZonedDateTime ifModifiedSince);
 
 		/**
 		 * Set the values of the {@code If-None-Match} header.
 		 * @param ifNoneMatches the new value of the header
-		 * @return this builder
+		 * @return the same instance
 		 */
 		HeaderSpec ifNoneMatch(String... ifNoneMatches);
 
@@ -436,42 +442,222 @@ public interface WebTestClient {
 		 * Add the given, single header value under the given name.
 		 * @param headerName  the header name
 		 * @param headerValues the header value(s)
-		 * @return this builder
+		 * @return the same instance
 		 */
 		HeaderSpec header(String headerName, String... headerValues);
 
 		/**
 		 * Copy the given headers into the entity's headers map.
 		 * @param headers the existing headers to copy from
-		 * @return this builder
+		 * @return the same instance
 		 */
 		HeaderSpec headers(HttpHeaders headers);
 
 		/**
-		 * Perform the request without a request body.
-		 * @return options for asserting the response with
+		 * Perform the exchange without a request body.
+		 * @return spec for decoding the response
 		 */
-		ExchangeActions exchange();
+		ResponseSpec exchange();
 
 		/**
-		 * Set the body of the request to the given {@code BodyInserter} and
-		 * perform the request.
-		 * @param inserter the {@code BodyInserter} that writes to the request
-		 * @param <T> the type contained in the body
-		 * @return options for asserting the response with
+		 * Perform the exchange with the body for the request populated using
+		 * a {@link BodyInserter}.
+		 * @param inserter the inserter
+		 * @param <T> the body type, or the the element type (for a stream)
+		 * @return spec for decoding the response
+		 * @see org.springframework.web.reactive.function.BodyInserters
 		 */
-		<T> ExchangeActions exchange(BodyInserter<T, ? super ClientHttpRequest> inserter);
+		<T> ResponseSpec exchange(BodyInserter<T, ? super ClientHttpRequest> inserter);
 
 		/**
-		 * Set the body of the request to the given {@code Publisher} and
-		 * perform the request.
-		 * @param publisher the {@code Publisher} to write to the request
+		 * Perform the exchange and use the given {@code Publisher} for the
+		 * request body.
+		 * @param publisher the request body data
 		 * @param elementClass the class of elements contained in the publisher
 		 * @param <T> the type of the elements contained in the publisher
 		 * @param <S> the type of the {@code Publisher}
-		 * @return options for asserting the response with
+		 * @return spec for decoding the response
 		 */
-		<T, S extends Publisher<T>> ExchangeActions exchange(S publisher, Class<T> elementClass);
+		<T, S extends Publisher<T>> ResponseSpec exchange(S publisher, Class<T> elementClass);
+	}
+
+	/**
+	 * Specification for processing the response and applying expectations.
+	 */
+	interface ResponseSpec {
+
+		/**
+		 * Assertions on the response status.
+		 */
+		StatusAssertions expectStatus();
+
+		/**
+		 * Assertions on the headers of the response.
+		 */
+		HeaderAssertions expectHeader();
+
+		/**
+		 * Assertions on the body of the response extracted to one or more
+		 * representations of the given type.
+		 */
+		TypeBodySpec expectBody(Class<?> elementType);
+
+		/**
+		 * Variant of {@link #expectBody(Class)} for use with generic types.
+		 */
+		TypeBodySpec expectBody(ResolvableType elementType);
+
+		/**
+		 * Other assertions on the response body -- isEmpty, map, etc.
+		 */
+		BodySpec expectBody();
+
+	}
+
+	/**
+	 * Specification for extracting entities from the response body.
+	 */
+	interface TypeBodySpec {
+
+		/**
+		 * Extract a single representations from the response.
+		 */
+		SingleValueBodySpec value();
+
+		/**
+		 * Extract a list of representations from the response.
+		 */
+		ListBodySpec list();
+
+		/**
+		 * Extract a list of representations consuming the first N elements.
+		 */
+		ListBodySpec list(int elementCount);
+
+		/**
+		 * Return request and response details for the exchange incluidng the
+		 * response body decoded as {@code Flux<T>} where {@code <T>} is the
+		 * expected element type. The returned {@code Flux} may for example be
+		 * verified with the Reactor {@code StepVerifier}.
+		 */
+		<T> FluxExchangeResult<T> returnResult();
+	}
+
+	/**
+	 * Specification to assert a single value extracted from the response body.
+	 */
+	interface SingleValueBodySpec {
+
+		/**
+		 * Assert the extracted body is equal to the given value.
+		 */
+		<T> EntityExchangeResult<T> isEqualTo(T expected);
+
+		/**
+		 * Return request and response details for the exchange including the
+		 * extracted response body.
+		 */
+		<T> EntityExchangeResult<T> returnResult();
+	}
+
+	/**
+	 * Specification to assert a list of values extracted from the response.
+	 */
+	interface ListBodySpec {
+
+		/**
+		 * Assert the extracted body is equal to the given list.
+		 */
+		<T> EntityExchangeResult<List<T>> isEqualTo(List<T> expected);
+
+		/**
+		 * Assert the extracted list of values is of the given size.
+		 * @param size the expected size
+		 */
+		ListBodySpec hasSize(int size);
+
+		/**
+		 * Assert the extracted list of values contains the given elements.
+		 * @param elements the elements to check
+		 */
+		ListBodySpec contains(Object... elements);
+
+		/**
+		 * Assert the extracted list of values doesn't contain the given elements.
+		 * @param elements the elements to check
+		 */
+		ListBodySpec doesNotContain(Object... elements);
+
+		/**
+		 * Return request and response details for the exchange including the
+		 * extracted response body.
+		 */
+		<T> EntityExchangeResult<List<T>> returnResult();
+	}
+
+	/**
+	 * Specification to apply additional assertions on the response body.
+	 */
+	interface BodySpec {
+
+		/**
+		 * Consume the body and verify it is empty.
+		 * @return request and response details from the exchange
+		 */
+		EntityExchangeResult<Void> isEmpty();
+
+		/**
+		 * Extract the response body as a Map with the given key and value type.
+		 */
+		MapBodySpec map(Class<?> keyType, Class<?> valueType);
+
+		/**
+		 * Variant of {@link #map(Class, Class)} for use with generic types.
+		 */
+		MapBodySpec map(ResolvableType keyType, ResolvableType valueType);
+
+	}
+
+	/**
+	 * Specification to assert response the body extracted as a map.
+	 */
+	interface MapBodySpec {
+
+		/**
+		 * Assert the extracted map is equal to the given list of elements.
+		 */
+		<K, V> EntityExchangeResult<Map<K, V>> isEqualTo(Map<K, V> expected);
+
+		/**
+		 * Assert the extracted map has the given size.
+		 * @param size the expected size
+		 */
+		MapBodySpec hasSize(int size);
+
+		/**
+		 * Assert the extracted map contains the given key value pair.
+		 * @param key the key to check
+		 * @param value the value to check
+		 */
+		MapBodySpec contains(Object key, Object value);
+
+		/**
+		 * Assert the extracted map contains the given keys.
+		 * @param keys the keys to check
+		 */
+		MapBodySpec containsKeys(Object... keys);
+
+		/**
+		 * Assert the extracted map contains the given values.
+		 * @param values the keys to check
+		 */
+		MapBodySpec containsValues(Object... values);
+
+		/**
+		 * Return request and response details for the exchange including the
+		 * extracted response body.
+		 */
+		<K, V> EntityExchangeResult<Map<K, V>> returnResult();
 	}
 
 }

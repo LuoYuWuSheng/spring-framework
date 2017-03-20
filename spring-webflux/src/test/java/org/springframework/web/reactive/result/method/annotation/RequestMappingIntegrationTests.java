@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,14 @@
 
 package org.springframework.web.reactive.result.method.annotation;
 
+import java.time.Duration;
+
 import org.junit.Test;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
-import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -31,9 +32,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.reactive.config.EnableWebFlux;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-
+import static org.junit.Assert.*;
 
 /**
  * Integration tests with {@code @RequestMapping} handler methods.
@@ -43,16 +42,18 @@ import static org.junit.Assert.assertEquals;
  *
  * @author Rossen Stoyanchev
  * @author Stephane Maldini
+ * @since 5.0
  */
 public class RequestMappingIntegrationTests extends AbstractRequestMappingIntegrationTests {
 
 	@Override
 	protected ApplicationContext initApplicationContext() {
 		AnnotationConfigApplicationContext wac = new AnnotationConfigApplicationContext();
-		wac.register(WebConfig.class);
+		wac.register(WebConfig.class, TestRestController.class);
 		wac.refresh();
 		return wac;
 	}
+
 
 	@Test
 	public void handleWithParam() throws Exception {
@@ -81,13 +82,11 @@ public class RequestMappingIntegrationTests extends AbstractRequestMappingIntegr
 
 	@Configuration
 	@EnableWebFlux
-	@ComponentScan(resourcePattern = "**/RequestMappingIntegrationTests$*.class")
-	@SuppressWarnings({"unused", "WeakerAccess"})
 	static class WebConfig {
 	}
 
+
 	@RestController
-	@SuppressWarnings("unused")
 	private static class TestRestController {
 
 		@GetMapping("/param")
@@ -97,31 +96,30 @@ public class RequestMappingIntegrationTests extends AbstractRequestMappingIntegr
 
 		@GetMapping("/long-stream-result")
 		public Publisher<Long> longStreamResponseBody() {
-			return Flux.intervalMillis(100).take(5);
+			return Flux.interval(Duration.ofMillis(100)).take(5);
 		}
 
 		@GetMapping("/object-stream-result")
 		public Publisher<Foo> objectStreamResponseBody() {
 			return Flux.just(new Foo("bar"));
 		}
-
 	}
+
 
 	private static class Foo {
 
 		private String name;
 
-		public Foo() {
-		}
-
 		public Foo(String name) {
 			this.name = name;
 		}
 
+		@SuppressWarnings("unused")
 		public String getName() {
 			return name;
 		}
 
+		@SuppressWarnings("unused")
 		public void setName(String name) {
 			this.name = name;
 		}

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,16 +25,16 @@ import reactor.core.publisher.Mono;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.core.MethodParameter;
-import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.mock.http.server.reactive.test.MockServerHttpRequest;
-import org.springframework.mock.http.server.reactive.test.MockServerHttpResponse;
+import org.springframework.mock.http.server.reactive.test.MockServerWebExchange;
+import org.springframework.util.ReflectionUtils;
 import org.springframework.web.reactive.BindingContext;
-import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.adapter.DefaultServerWebExchange;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Unit tests for {@link ExpressionValueMethodArgumentResolver}.
@@ -45,31 +45,44 @@ public class ExpressionValueMethodArgumentResolverTests {
 
 	private ExpressionValueMethodArgumentResolver resolver;
 
-	private ServerWebExchange exchange;
+	private final MockServerWebExchange exchange = MockServerHttpRequest.get("/").toExchange();
 
 	private MethodParameter paramSystemProperty;
 	private MethodParameter paramNotSupported;
+	private MethodParameter paramAlsoNotSupported;
 
 
 	@Before
-	public void setUp() throws Exception {
+	public void setup() throws Exception {
 		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
 		context.refresh();
-		this.resolver = new ExpressionValueMethodArgumentResolver(context.getBeanFactory());
+		ReactiveAdapterRegistry adapterRegistry = new ReactiveAdapterRegistry();
+		this.resolver = new ExpressionValueMethodArgumentResolver(context.getBeanFactory(), adapterRegistry);
 
-		ServerHttpRequest request = MockServerHttpRequest.get("/").build();
-		this.exchange = new DefaultServerWebExchange(request, new MockServerHttpResponse());
-
-		Method method = getClass().getMethod("params", int.class, String.class);
+		Method method = ReflectionUtils.findMethod(getClass(), "params", (Class<?>[]) null);
 		this.paramSystemProperty = new MethodParameter(method, 0);
 		this.paramNotSupported = new MethodParameter(method, 1);
+		this.paramAlsoNotSupported = new MethodParameter(method, 2);
 	}
 
 
 	@Test
 	public void supportsParameter() throws Exception {
 		assertTrue(this.resolver.supportsParameter(this.paramSystemProperty));
+	}
+
+	@Test
+	public void doesNotSupport() throws Exception {
 		assertFalse(this.resolver.supportsParameter(this.paramNotSupported));
+		try {
+			this.resolver.supportsParameter(this.paramAlsoNotSupported);
+			fail();
+		}
+		catch (IllegalStateException ex) {
+			assertTrue("Unexpected error message:\n" + ex.getMessage(),
+					ex.getMessage().startsWith(
+							"ExpressionValueMethodArgumentResolver doesn't support reactive type wrapper"));
+		}
 	}
 
 	@Test
@@ -92,7 +105,10 @@ public class ExpressionValueMethodArgumentResolverTests {
 
 
 	@SuppressWarnings("unused")
-	public void params(@Value("#{systemProperties.systemProperty}") int param1, String notSupported) {
+	public void params(
+			@Value("#{systemProperties.systemProperty}") int param1,
+			String notSupported,
+			@Value("#{systemProperties.foo}") Mono<String> alsoNotSupported) {
 	}
 
 }
